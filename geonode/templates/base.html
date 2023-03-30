@@ -36,7 +36,7 @@
 
     <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
 
-    <link rel="shortcut icon" href="{% static 'geonode/img/favicon.ico' %}" />
+    <link rel="shortcut icon" href="{% static 'geonode/img/favicon_vietmap.png' %}" />
     <link href="{% static "lib/css/ol.css" %}" rel="stylesheet" />
     <script src="{% static "lib/js/ol.js" %}"></script>
     <link rel="preload" as="style" href="{% static "geonode/css/font-awesome.min.css" %}" />
@@ -382,10 +382,10 @@
         <div class="col-md-6 text-right">
           {% block contactus %}
           {% endblock contactus %}
-          <ul class="list-unstyled">
-            <li>{% trans "Powered by" %} <a href="http://geonode.org">{% trans "GeoNode" %}</a>{% if user.is_staff %} <em>{% trans "version" %} {{ VERSION }}</em>{% endif %}</li>
+          {% comment %} <ul class="list-unstyled">
+            <li>{% trans "Powered by" %} <a href="https://geo-cms.fastmap.vn">{% trans "GeoNode" %}</a>{% if user.is_staff %} <em>{% trans "version" %} {{ VERSION }}</em>{% endif %}</li>
             <li><a href="{% url "developer" %}">{% trans "Developers" %}</a> | <a href="{% url "about" %}">{% trans "About" %}</a><li>
-          </ul>
+          </ul> {% endcomment %}
           <label class="hidden">{% trans "Language" %}</label>
           {% if csrf_token != "NOTPROVIDED" %}
           {% get_current_language as LANGUAGE %}
