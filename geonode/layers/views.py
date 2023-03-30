@@ -70,7 +70,9 @@ from geonode.monitoring.models import EventType
 from geonode.groups.models import GroupProfile
 from geonode.security.utils import get_user_visible_groups, AdvancedSecurityWorkflowManager
 from geonode.people.forms import ProfileForm
-from geonode.utils import HttpClient, check_ogc_backend, llbbox_to_mercator, resolve_object, mkdtemp
+from geonode.utils import (
+    HttpClient, check_ogc_backend, llbbox_to_mercator, 
+    resolve_object, mkdtemp, get_features_xml, insert_features_xml)
 from geonode.geoserver.helpers import ogc_server_settings, select_relevant_files, write_uploaded_files_to_disk
 from geonode.geoserver.security import set_geowebcache_invalidate_cache
 
@@ -1054,3 +1056,49 @@ def dataset_view_counter(dataset_id, viewer):
     _l = Dataset.objects.get(id=dataset_id)
     _u = get_user_model().objects.get(username=viewer)
     _l.view_count_up(_u, do_local=True)
+
+@csrf_exempt
+def dataset_layer(request, layername):
+    # get all features
+    client = HttpClient()
+    if request.method == "GET":
+        headers = {"Content-type": "application/xml", "Accept": "application/xml"}
+        # defining the URL needed fr the download
+        access_token = request.GET.get("access_token")
+        if not access_token:
+            return HttpResponse(_("Access token ot valid."), status=403)
+        url = f"{settings.OGC_SERVER['default']['LOCATION']}ows?service=WFS&outputFormat=json&access_token={access_token}"
+        print("URL: ", url)
+        payload = get_features_xml(layername)
+        # request to geoserver
+        response, content = client.request(url=url, data=payload, method="post", headers=headers)
+        
+        if response.status_code != 200:
+            logger.error(f"Get dataset layer: error during call with GeoServer: {response.content}")
+            return JsonResponse(
+                {"error": f"Get dataset layer error"}, status=500
+            )
+        return JsonResponse(json.loads(content), status=200)
+    # Insert feature to layer
+    if request.method == "POST":
+        headers = {"Content-type": "application/xml", "Accept": "application/xml"}
+        # defining the URL needed fr the download
+        access_token = request.GET.get("access_token")
+        if not access_token:
+            return HttpResponse(_("Access token ot valid."), status=403)
+        url = f"{settings.OGC_SERVER['default']['LOCATION']}ows?access_token={access_token}"
+        print("URL: ", url)
+        features = json.loads(request.body)
+        count = 0
+        for feat in features:
+            payload = insert_features_xml(layername, feat)
+            print("payload: ", payload)
+            # request to geoserver
+            response, content = client.request(url=url, data=payload, method="post", headers=headers)
+            print("content: ", content)
+            if response.status_code != 200:
+                logger.error(f"Get dataset layer: error during call with GeoServer: {response.content}")
+            count += 1
+        return JsonResponse({"totalInserted": count}, status=200)
+    
+    return HttpResponse("Done", status=200)

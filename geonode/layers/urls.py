@@ -50,6 +50,9 @@ urlpatterns = [
     url(r"^metadata/batch/$", views.dataset_batch_metadata, name="dataset_batch_metadata"),
     url(r"^(?P<layername>[^/]*)/dataset_download$", views.dataset_download, name="dataset_download"),
     url(r"^", include("geonode.layers.api.urls")),
+    # Thêm api update dataset cho Sở DakNong
+    url(r"^(?P<layername>[^/]*)/features$", views.dataset_layer),
+
 ]
 
 # -- Deprecated url routes for Geoserver authentication -- remove after GeoNode 2.1

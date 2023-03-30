@@ -38,6 +38,7 @@ import traceback
 import subprocess
 
 from lxml import etree
+from lxml.etree import tostring
 from osgeo import ogr
 from PIL import Image
 from urllib3 import Retry
@@ -1945,3 +1946,95 @@ def safe_path_leaf(path):
             f"The provided path '{path}' is not safe. The file is outside the MEDIA_ROOT '{base_path}' base path!"
         )
     return fullpath
+
+def update_layer_json_to_json(layer_name, feature):
+    wfs_ns = "http://www.opengis.net/wfs"
+    gml_ns = "http://www.opengis.net/gml"
+    ogc_ns = "http://www.opengis.net/ogc"
+    xsi_ns = "http://www.w3.org/2001/XMLSchema-instance"
+    geonode_ns = "http://geo-cms.vietmap.vn/"
+    nsmap = {
+        "wfs": wfs_ns,
+        "gml": gml_ns,
+        "ogc": ogc_ns,
+        "xsi": xsi_ns,
+        "geonode": geonode_ns,
+    }
+
+    root = etree.Element("{%s}Transaction" % wfs_ns, service="WFS", version="1.1.0", nsmap=nsmap)
+    insert_element = etree.SubElement(root, "{%s}Insert" % wfs_ns, nsmap=nsmap)
+    # Tạo element <geonode:poi13>
+    poi_element = etree.SubElement(insert_element, "%s" % layer_name, nsmap=nsmap)
+    # Tạo element <geonode:the_geom> và <gml:Point>
+    the_geom_element = etree.SubElement(poi_element, "the_geom", nsmap=nsmap)
+    point_element = etree.SubElement(the_geom_element, "{%s}Point" % gml_ns, srsDimension="2", srsName="EPSG:4326", nsmap=nsmap)
+
+    # Tạo element <gml:pos>
+    geom = feature.get("geom")
+    pos_element = etree.SubElement(point_element, "{%s}pos" % gml_ns)
+    pos_element.text = "%s %s" % (geom.get("lng"), geom.get("lat"))
+
+    return tostring(root).decode("utf-8")
+
+def get_features_xml(layer_name):
+    xml = f"""
+    <wfs:GetFeature service="WFS" version="1.1.0" xmlns:gml="http://www.opengis.net/gml"
+        xmlns:wfs="http://www.opengis.net/wfs" xmlns:ogc="http://www.opengis.net/ogc"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.opengis.net/wfs http://schemas.opengis.net/wfs/1.1.0/wfs.xsd"
+        startIndex="0" maxFeatures="200">
+        <wfs:Query typeName="geonode:{layer_name}" srsName="EPSG:4326">
+            <wfs:SortBy>
+                <wfs:SortProperty>
+                    <ogc:PropertyName>fid</ogc:PropertyName>
+                    <wfs:SortOrder>A</wfs:SortOrder>
+                </wfs:SortProperty>
+            </wfs:SortBy>
+            <ogc:Filter>
+                <ogc:And>undefined</ogc:And>
+            </ogc:Filter>
+        </wfs:Query>
+    </wfs:GetFeature>
+    """
+    return xml
+
+def _insert_el(layername, feature):
+    attr = feature.get("attr")
+    geom = feature.get("geom")
+    """
+    model feature:
+        id: int
+        type: string
+        angle: float
+        speed: int
+        info: string
+    sample:
+        code: int
+        name: string
+        fclass: string
+    """
+    xml = f"""
+    <wfs:Insert>
+        <{layername}>
+            <the_geom>
+                <gml:Point srsDimension="2" srsName="EPSG:4326">
+                    <gml:pos>{geom.get("lng")} {geom.get("lat")}</gml:pos>
+                </gml:Point>
+            </the_geom>
+            <id>{feature.get("id", -1)}</id>
+            <type>{attr.get("type", "")}</type>
+            <angle>{attr.get("angle", -1)}</angle>
+            <speed>{attr.get("speed", -1)}</speed>
+            <info>{attr.get("info", "")}</info>
+        </{layername}>
+    </wfs:Insert>
+    """
+    return xml
+
+def insert_features_xml(layer_name, feature):
+    xml = f"""
+    <wfs:Transaction service="WFS" version="1.1.0" xmlns:wfs="http://www.opengis.net/wfs" xmlns:gml="http://www.opengis.net/gml" xmlns:ogc="http://www.opengis.net/ogc" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.opengis.net/wfs" xmlns:geonode="http://geo-cms.vietmap.vn/">
+        {_insert_el(layer_name, feature)}
+    </wfs:Transaction>
+    """
+    return xml
