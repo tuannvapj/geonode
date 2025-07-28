@@ -130,6 +130,7 @@ urlpatterns += [
     re_path(r"^api/v2/api-auth/", include("rest_framework.urls", namespace="geonode_rest_framework")),
     re_path(r"^api/v2/", include("geonode.facets.urls")),
     re_path(r"^api/v2/", include("geonode.assets.urls")),
+    re_path(r"api/csdl/", include("csdl_api.urls")),
     re_path(r"", include(api.urls)),
 ]
 
