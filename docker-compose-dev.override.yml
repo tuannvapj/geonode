@@ -1,0 +1,12 @@
+# docker-compose-dev.override.yml
+services:
+  django:
+    volumes:
+      - .:/usr/src/geonode          # mount đúng thư mục mã
+    command: >
+      bash -c "
+        export PYTHONUNBUFFERED=1 &&
+        pip install -e . &&
+        python manage.py migrate &&
+        python manage.py runserver 0.0.0.0:8000
+      "

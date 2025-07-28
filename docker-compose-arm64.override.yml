@@ -1,0 +1,28 @@
+# docker-compose-arm64.override.yml
+services:
+  django:
+    platform: linux/amd64
+    command: >
+      bash -c "
+        export PYTHONUNBUFFERED=1 &&
+        pip install -e . &&
+        python manage.py migrate &&
+        python manage.py runserver 0.0.0.0:8000
+      "
+
+  celery:
+    platform: linux/amd64   # chạy giả lập cũng ổn
+  geonode:         { platform: linux/amd64 }
+  geoserver:       { platform: linux/amd64 }
+  data-dir-conf:   { platform: linux/amd64 }
+  letsencrypt:
+    platform: linux/amd64
+    deploy:
+      replicas: 0          # hoặc đơn giản là xoá service
+  db:              { platform: linux/amd64 }
+  rabbitmq:        
+    platform: linux/amd64
+    image: rabbitmq:3.12-management-alpine   # 3.12.x không có bug feature-flags
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest

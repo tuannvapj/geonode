@@ -36,6 +36,8 @@ formatter = logging.Formatter("%(levelname)s - %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+_simple_chars = string.ascii_letters + string.digits
+
 
 def shuffle(chars):
     chars_as_list = list(chars)

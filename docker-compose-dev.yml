@@ -41,6 +41,7 @@ services:
   # Celery worker that executes celery tasks created by Django.
   celery:
     << : *default-common-django
+    platform: linux/amd64
     container_name: celery4${COMPOSE_PROJECT_NAME}
     depends_on:
       django:
@@ -69,6 +70,7 @@ services:
 
   # Gets and installs letsencrypt certificates
   letsencrypt:
+    platform: linux/amd64
     image: geonode/letsencrypt:2.6.0-latest
     container_name: letsencrypt4${COMPOSE_PROJECT_NAME}
     env_file:
@@ -79,6 +81,7 @@ services:
 
   # Geoserver backend
   geoserver:
+    platform: linux/amd64
     image: geonode/geoserver:2.24.3-latest
     container_name: geoserver4${COMPOSE_PROJECT_NAME}
     healthcheck:
@@ -134,6 +137,7 @@ services:
 
   # Vanilla RabbitMQ service. This is needed by celery
   rabbitmq:
+    platform: linux/amd64
     image: rabbitmq:3-alpine
     container_name: rabbitmq4${COMPOSE_PROJECT_NAME}
     volumes:
