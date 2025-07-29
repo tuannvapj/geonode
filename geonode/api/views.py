@@ -55,8 +55,30 @@ def verify_access_token(request, key):
 
 @csrf_exempt
 def user_info(request):
+    # ------------------------------------------------------------------
+    # Helper: allow Bearer <token> in Authorization header OR
+    #         ?access_token=<token> query param so that API clients
+    #         (e.g. QGIS plugin) can call /userinfo without session cookie
+    # ------------------------------------------------------------------
+    def _get_token_from_request(req):
+        auth = req.META.get("HTTP_AUTHORIZATION", "")
+        if auth.lower().startswith("bearer "):
+            return auth.split(None, 1)[1].strip()
+        # fallback query param
+        return req.GET.get("access_token") or req.POST.get("access_token")
+
+    # 1) Prefer session‑auth
     user = request.user
 
+    # 2) If session not present, try Bearer/OAuth2 token
+    if not user or user.is_anonymous:
+        raw_token = _get_token_from_request(request)
+        if raw_token:
+            token_obj = verify_access_token(request, raw_token)
+            if token_obj:
+                user = token_obj.user
+
+    # After extra step, still anonymous?
     if not user or user.is_anonymous:
         out = {"success": False, "status": "error", "errors": {"user": ["User is not authenticated"]}}
         return json_response(out, status=401)

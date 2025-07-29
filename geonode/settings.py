@@ -836,6 +836,36 @@ MIDDLEWARE = (
 
 MESSAGE_STORAGE = "django.contrib.messages.storage.cookie.CookieStorage"
 
+# ---------------------------------------------------------------------
+# CORS SETTINGS
+# ---------------------------------------------------------------------
+#
+# GeoNode ships with django‑cors‑headers already installed.
+# We harmonise old/new env variable names and expose settings so that
+# they **really** end up in runtime, enabling QGIS/plugin requests.
+#
+#   * CORS_ORIGIN_ALLOW_ALL / CORS_ALLOW_ALL_ORIGINS   (bool)
+#   * CORS_ORIGIN_WHITELIST / CORS_ALLOWED_ORIGINS    (comma list)
+#   * CORS_ALLOW_CREDENTIALS                         (bool)
+#
+# This block must come *before* the Security section so the variables are
+# defined when other modules import settings.
+# ---------------------------------------------------------------------
+CORS_ORIGIN_ALLOW_ALL = ast.literal_eval(
+    os.getenv("CORS_ORIGIN_ALLOW_ALL", os.getenv("CORS_ALLOW_ALL_ORIGINS", "False"))
+)
+# Backwards‑compat alias expected by some third‑party code
+CORS_ALLOW_ALL_ORIGINS = CORS_ORIGIN_ALLOW_ALL
+# Whitelist handling
+if not CORS_ORIGIN_ALLOW_ALL:
+    _cors_env = (
+        os.getenv("CORS_ORIGIN_WHITELIST")
+        or os.getenv("CORS_ALLOWED_ORIGINS")
+        or ""
+    )
+    CORS_ORIGIN_WHITELIST = [o.strip() for o in _cors_env.split(",") if o.strip()]
+CORS_ALLOW_CREDENTIALS = ast.literal_eval(os.getenv("CORS_ALLOW_CREDENTIALS", "True"))
+
 # Security stuff
 SESSION_EXPIRED_CONTROL_ENABLED = ast.literal_eval(os.environ.get("SESSION_EXPIRED_CONTROL_ENABLED", "True"))
 
