@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from django.conf import settings
 import geonode.base.api.serializers as base_serializers
+from django.contrib.auth.models import Group
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,8 @@ logger = logging.getLogger(__name__)
 class UserSerializer(base_serializers.DynamicModelSerializer):
 
     link = base_serializers.AutoLinkField(read_only=True)
+    groups = serializers.SerializerMethodField()
+    date_joined = serializers.DateTimeField()
 
     class Meta:
         ref_name = "UserProfile"
@@ -32,6 +35,8 @@ class UserSerializer(base_serializers.DynamicModelSerializer):
             "is_staff",
             "email",
             "link",
+            "groups",
+            "date_joined"
         )
 
     @staticmethod
@@ -84,4 +89,7 @@ class UserSerializer(base_serializers.DynamicModelSerializer):
                     del data["perms"]
         return data
 
+    def get_groups(self, obj):
+        return list(obj.groups.values_list("name", flat=True))
+    
     avatar = base_serializers.AvatarUrlField(240, read_only=True)

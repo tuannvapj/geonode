@@ -46,6 +46,8 @@ class UserViewSet(DynamicModelViewSet):
             queryset = get_available_users(self.request.user)
         else:
             queryset = get_user_model().objects.all()
+        
+        queryset = queryset.prefetch_related("groups")
 
         # Set up eager loading to avoid N+1 selects
         queryset = self.get_serializer_class().setup_eager_loading(queryset)
