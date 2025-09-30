@@ -2127,3 +2127,93 @@ class GroupGeoLimit(models.Model):
 class ExtraMetadata(models.Model):
     resource = models.ForeignKey(ResourceBase, null=False, blank=False, on_delete=models.CASCADE)
     metadata = JSONField(null=True, default=dict, blank=True)
+
+
+class OrgDocument(models.Model):
+    """
+    Model for organizational documents/circulars
+    """
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    tags = models.CharField(max_length=500, blank=True, help_text="Comma-separated tags")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='created_org_documents'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Organizational Document'
+        verbose_name_plural = 'Organizational Documents'
+
+    def __str__(self):
+        return self.title
+
+    @property
+    def tag_list(self):
+        """Return tags as a list"""
+        if self.tags:
+            return [tag.strip() for tag in self.tags.split(',') if tag.strip()]
+        return []
+
+    @property
+    def file_count(self):
+        """Return number of attached files"""
+        return self.files.count()
+
+
+class OrgDocumentFile(models.Model):
+    """
+    Model for files attached to organizational documents
+    """
+    ALLOWED_EXTENSIONS = [
+        'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+        'txt', 'jpg', 'jpeg', 'png', 'gif', 'zip', 'rar'
+    ]
+
+    document = models.ForeignKey(
+        OrgDocument,
+        on_delete=models.CASCADE,
+        related_name='files'
+    )
+    file = models.FileField(upload_to='org_documents/%Y/%m/')
+    filename = models.CharField(max_length=255)
+    file_size = models.PositiveIntegerField(help_text="File size in bytes")
+    content_type = models.CharField(max_length=100)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE
+    )
+
+    class Meta:
+        ordering = ['filename']
+        verbose_name = 'Document File'
+        verbose_name_plural = 'Document Files'
+
+    def __str__(self):
+        return f"{self.document.title} - {self.filename}"
+
+    @property
+    def file_extension(self):
+        """Get file extension"""
+        return self.filename.split('.')[-1].lower() if '.' in self.filename else ''
+
+    @property
+    def is_allowed_type(self):
+        """Check if file type is allowed"""
+        return self.file_extension in self.ALLOWED_EXTENSIONS
+
+    def save(self, *args, **kwargs):
+        # Set filename if not provided
+        if not self.filename and self.file:
+            self.filename = self.file.name.split('/')[-1]
+
+        # Set file size if not provided
+        if not self.file_size and self.file:
+            self.file_size = self.file.size
+
+        super().save(*args, **kwargs)

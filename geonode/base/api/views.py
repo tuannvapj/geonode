@@ -54,7 +54,7 @@ from rest_framework.authentication import SessionAuthentication, BasicAuthentica
 from geonode.maps.models import Map
 from geonode.layers.models import Dataset
 from geonode.favorite.models import Favorite
-from geonode.base.models import Configuration, ExtraMetadata, LinkedResource
+from geonode.base.models import Configuration, ExtraMetadata, LinkedResource, OrgDocument, OrgDocumentFile
 from geonode.thumbs.exceptions import ThumbnailError
 from geonode.thumbs.thumbnails import create_thumbnail
 from geonode.thumbs.utils import _decode_base64, BASE64_PATTERN
@@ -101,6 +101,9 @@ from .serializers import (
     ThesaurusKeywordSerializer,
     ExtraMetadataSerializer,
     LinkedResourceSerializer,
+    OrgDocumentSerializer,
+    OrgDocumentFileSerializer,
+    OrgDocumentCreateSerializer,
 )
 from geonode.people.api.serializers import UserSerializer
 from .pagination import GeoNodeApiPagination
@@ -1433,3 +1436,296 @@ def base_linked_resources_payload(instance, user, params={}):
         ret.pop("WARNINGS")
 
     return ret
+
+
+class OrgDocumentViewSet(DynamicModelViewSet):
+    """
+    ViewSet for organizational documents with role-based permissions.
+
+    Permissions:
+    - qtv role: Full CRUD access (create, read, update, delete, upload files)
+    - ktv and guest roles: Read-only access (view and download)
+    """
+
+    http_method_names = ["get", "post", "patch", "put", "delete"]
+    authentication_classes = [SessionAuthentication, BasicAuthentication, OAuth2Authentication]
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DynamicFilterBackend, DynamicSortingFilter, DynamicSearchFilter]
+    serializer_class = OrgDocumentSerializer
+    pagination_class = GeoNodeApiPagination
+    parser_classes = [JSONParser, MultiPartParser]
+
+    def get_queryset(self):
+        """Return all documents ordered by creation date"""
+        return OrgDocument.objects.all().select_related('created_by')
+
+    def _has_qtv_role(self, user):
+        """Check if user has qtv role (full access)"""
+        if user.is_superuser:
+            return True
+
+        from geonode.groups.models import GroupProfile, GroupMember
+        try:
+            qtv_group = GroupProfile.objects.get(slug='qtv')
+            return GroupMember.objects.filter(user=user, group=qtv_group).exists()
+        except GroupProfile.DoesNotExist:
+            return False
+
+    def _has_read_role(self, user):
+        """Check if user has read access (qtv, ktv, or guest)"""
+        if self._has_qtv_role(user):
+            return True
+
+        from geonode.groups.models import GroupProfile, GroupMember
+        allowed_roles = ['ktv', 'guest']
+
+        for role in allowed_roles:
+            try:
+                group = GroupProfile.objects.get(slug=role)
+                if GroupMember.objects.filter(user=user, group=group).exists():
+                    return True
+            except GroupProfile.DoesNotExist:
+                continue
+
+        return False
+
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action"""
+        if self.action == 'create':
+            return OrgDocumentCreateSerializer
+        return OrgDocumentSerializer
+
+    @extend_schema(
+        methods=["get"],
+        responses={200: OrgDocumentSerializer(many=True)},
+        description="List all organizational documents. Accessible by users with qtv, ktv, or guest roles.",
+    )
+    def list(self, request, *args, **kwargs):
+        """List documents with role-based access"""
+        if not self._has_read_role(request.user):
+            return Response({
+                "success": False,
+                "errors": ["You need qtv, ktv, or guest role to view documents."],
+                "code": "permission_denied"
+            }, status=403)
+
+        return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        methods=["get"],
+        responses={200: OrgDocumentSerializer},
+        description="Retrieve a specific organizational document. Accessible by users with qtv, ktv, or guest roles.",
+    )
+    def retrieve(self, request, *args, **kwargs):
+        """Retrieve single document with role-based access"""
+        if not self._has_read_role(request.user):
+            return Response({
+                "success": False,
+                "errors": ["You need qtv, ktv, or guest role to view documents."],
+                "code": "permission_denied"
+            }, status=403)
+
+        return super().retrieve(request, *args, **kwargs)
+
+    @extend_schema(
+        methods=["post"],
+        request=OrgDocumentCreateSerializer,
+        responses={
+            201: {"description": "Document created successfully"},
+            403: {"description": "Permission denied"}
+        },
+        description="Create a new organizational document with file attachments. Only qtv role users can create documents.",
+    )
+    def create(self, request, *args, **kwargs):
+        """Create document - qtv role only"""
+        if not self._has_qtv_role(request.user):
+            return Response({
+                "success": False,
+                "errors": ["Only users with qtv role can create documents."],
+                "code": "permission_denied"
+            }, status=403)
+
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                "success": False,
+                "errors": self._format_validation_errors(serializer.errors),
+                "code": "invalid"
+            }, status=400)
+
+        document = serializer.save()
+
+        # Return success response
+        response_serializer = OrgDocumentSerializer(document, context={'request': request})
+        return Response({
+            "success": True,
+            "data": response_serializer.data,
+            "message": "Document created successfully"
+        }, status=201)
+
+    @extend_schema(
+        methods=["patch", "put"],
+        request=OrgDocumentSerializer,
+        responses={
+            200: {"description": "Document updated successfully"},
+            403: {"description": "Permission denied"}
+        },
+        description="Update an organizational document. Only qtv role users can update documents.",
+    )
+    def update(self, request, *args, **kwargs):
+        """Update document - qtv role only"""
+        if not self._has_qtv_role(request.user):
+            return Response({
+                "success": False,
+                "errors": ["Only users with qtv role can update documents."],
+                "code": "permission_denied"
+            }, status=403)
+
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+
+        if not serializer.is_valid():
+            return Response({
+                "success": False,
+                "errors": self._format_validation_errors(serializer.errors),
+                "code": "invalid"
+            }, status=400)
+
+        document = serializer.save()
+
+        response_serializer = OrgDocumentSerializer(document, context={'request': request})
+        return Response({
+            "success": True,
+            "data": response_serializer.data,
+            "message": "Document updated successfully"
+        }, status=200)
+
+    @extend_schema(
+        methods=["delete"],
+        responses={
+            200: {"description": "Document deleted successfully"},
+            403: {"description": "Permission denied"}
+        },
+        description="Delete an organizational document and all its files. Only qtv role users can delete documents.",
+    )
+    def destroy(self, request, *args, **kwargs):
+        """Delete document - qtv role only"""
+        if not self._has_qtv_role(request.user):
+            return Response({
+                "success": False,
+                "errors": ["Only users with qtv role can delete documents."],
+                "code": "permission_denied"
+            }, status=403)
+
+        instance = self.get_object()
+        document_info = {
+            "id": instance.id,
+            "title": instance.title,
+            "file_count": instance.file_count
+        }
+
+        instance.delete()
+
+        return Response({
+            "success": True,
+            "data": document_info,
+            "message": "Document deleted successfully"
+        }, status=200)
+
+    @extend_schema(
+        methods=["post"],
+        request={"multipart/form-data": {"type": "object", "properties": {"files": {"type": "array", "items": {"type": "string", "format": "binary"}}}}},
+        responses={
+            200: {"description": "Files uploaded successfully"},
+            403: {"description": "Permission denied"}
+        },
+        description="Upload additional files to an existing document. Only qtv role users can upload files.",
+    )
+    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser])
+    def upload_files(self, request, pk=None):
+        """Upload additional files to document - qtv role only"""
+        if not self._has_qtv_role(request.user):
+            return Response({
+                "success": False,
+                "errors": ["Only users with qtv role can upload files."],
+                "code": "permission_denied"
+            }, status=403)
+
+        document = self.get_object()
+        files = request.FILES.getlist('files')
+
+        if not files:
+            return Response({
+                "success": False,
+                "errors": ["No files provided."],
+                "code": "invalid"
+            }, status=400)
+
+        uploaded_files = []
+        for file in files:
+            doc_file = OrgDocumentFile.objects.create(
+                document=document,
+                file=file,
+                filename=file.name,
+                file_size=file.size,
+                content_type=getattr(file, 'content_type', 'application/octet-stream'),
+                uploaded_by=request.user
+            )
+            uploaded_files.append(OrgDocumentFileSerializer(doc_file, context={'request': request}).data)
+
+        return Response({
+            "success": True,
+            "data": {"uploaded_files": uploaded_files},
+            "message": f"{len(uploaded_files)} files uploaded successfully"
+        }, status=200)
+
+    @extend_schema(
+        methods=["delete"],
+        responses={
+            200: {"description": "File deleted successfully"},
+            403: {"description": "Permission denied"}
+        },
+        description="Delete a specific file from a document. Only qtv role users can delete files.",
+    )
+    @action(detail=True, methods=['delete'], url_path='files/(?P<file_id>[0-9]+)')
+    def delete_file(self, request, pk=None, file_id=None):
+        """Delete specific file from document - qtv role only"""
+        if not self._has_qtv_role(request.user):
+            return Response({
+                "success": False,
+                "errors": ["Only users with qtv role can delete files."],
+                "code": "permission_denied"
+            }, status=403)
+
+        document = self.get_object()
+
+        try:
+            doc_file = OrgDocumentFile.objects.get(id=file_id, document=document)
+            file_info = {
+                "id": doc_file.id,
+                "filename": doc_file.filename
+            }
+            doc_file.delete()
+
+            return Response({
+                "success": True,
+                "data": file_info,
+                "message": "File deleted successfully"
+            }, status=200)
+        except OrgDocumentFile.DoesNotExist:
+            return Response({
+                "success": False,
+                "errors": ["File not found."],
+                "code": "not_found"
+            }, status=404)
+
+    def _format_validation_errors(self, errors):
+        """Format validation errors into a list of strings"""
+        formatted_errors = []
+        for field, field_errors in errors.items():
+            if field == 'non_field_errors':
+                formatted_errors.extend(field_errors)
+            else:
+                for error in field_errors:
+                    formatted_errors.append(f"{field}: {error}")
+        return formatted_errors

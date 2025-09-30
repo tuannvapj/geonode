@@ -17,7 +17,7 @@ from geonode.security.utils import get_visible_resources
 from guardian.shortcuts import get_objects_for_user
 from rest_framework.exceptions import PermissionDenied
 from geonode.people.utils import check_user_deletion_rules
-from geonode.people.api.serializers import UserSerializer
+from geonode.people.api.serializers import UserSerializer, PasswordChangeSerializer
 from geonode.people.utils import get_available_users
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
@@ -53,31 +53,209 @@ class UserViewSet(DynamicModelViewSet):
         queryset = self.get_serializer_class().setup_eager_loading(queryset)
         return queryset.order_by("username")
 
-    def perform_create(self, serializer):
-        user = self.request.user
-        if not (user.is_superuser or user.is_staff):
-            raise PermissionDenied()
-        serializer.is_valid(raise_exception=True)
+    def create(self, request, *args, **kwargs):
+        """
+        Create a new user. Only superusers can create users.
+        """
+        if not request.user.is_superuser:
+            return Response({
+                "success": False,
+                "errors": ["Only superusers can create new users."],
+                "code": "permission_denied"
+            }, status=403)
+
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                "success": False,
+                "errors": self._format_validation_errors(serializer.errors),
+                "code": "invalid"
+            }, status=400)
+
         instance = serializer.save()
-        return instance
 
+        # Handle group_profiles if provided
+        group_slugs = request.data.get("group_profiles")
+        if group_slugs is not None:
+            self._update_group_profiles(instance, group_slugs)
+
+        # Return success response with created user data
+        response_serializer = self.get_serializer(instance)
+        return Response({
+            "success": True,
+            "data": response_serializer.data,
+            "message": "User created successfully"
+        }, status=201)
+
+    def _format_validation_errors(self, errors):
+        """
+        Format validation errors into a list of strings
+        """
+        formatted_errors = []
+        for field, field_errors in errors.items():
+            if field == 'non_field_errors':
+                formatted_errors.extend(field_errors)
+            else:
+                for error in field_errors:
+                    formatted_errors.append(f"{field}: {error}")
+        return formatted_errors
+
+    def perform_create(self, serializer):
+        # This method is now handled by the create method above
+        pass
+    
+    def _is_admin_user(self, user):
+        """
+        Check if user is admin (superuser or has qtv role)
+        """
+        if user.is_superuser:
+            return True
+
+        # Check if user is in qtv group
+        from geonode.groups.models import GroupProfile, GroupMember
+        try:
+            qtv_group = GroupProfile.objects.get(slug='qtv')
+            return GroupMember.objects.filter(user=user, group=qtv_group).exists()
+        except GroupProfile.DoesNotExist:
+            # If qtv group doesn't exist, only superusers can delete
+            return False
+
+    def _update_group_profiles(self, user, group_slugs):
+        from geonode.groups.models import GroupProfile, GroupMember
+
+        # Xoá hết nhóm cũ
+        GroupMember.objects.filter(user=user).delete()
+
+        # Thêm lại nhóm mới từ slug
+        for slug in group_slugs:
+            try:
+                group = GroupProfile.objects.get(slug=slug)
+                GroupMember.objects.create(user=user, group=group)
+            except GroupProfile.DoesNotExist:
+                continue
+
+    @extend_schema(
+        methods=["patch", "put"],
+        request=UserSerializer,
+        responses={
+            200: {"description": "User updated successfully"},
+            400: {"description": "Validation error"},
+            403: {"description": "Permission denied"}
+        },
+        description="API endpoint for updating user information. Superusers can update any user including group_profiles. Regular users can only update their own profile (email, first_name, last_name). For convenience, users can also use /api/v2/users/me/update/ to update their own profile.",
+    )
     def update(self, request, *args, **kwargs):
+        """
+        Update an existing user. Only superusers can update other users.
+        Users can update their own profile (except username).
+        """
         instance = self.get_object()
+
+        # Check permissions
+        if not request.user.is_superuser and request.user != instance:
+            return Response({
+                "success": False,
+                "errors": ["You can only update your own profile, or you must be a superuser to update other users."],
+                "code": "permission_denied"
+            }, status=403)
+
+        # For non-superusers updating their own profile, remove restricted fields
+        if not request.user.is_superuser and request.user == instance:
+            # Remove fields that only superusers can update
+            restricted_fields = ['is_superuser', 'is_staff', 'group_profiles']
+            for field in restricted_fields:
+                if field in request.data:
+                    return Response({
+                        "success": False,
+                        "errors": [f"Only superusers can update the '{field}' field."],
+                        "code": "permission_denied"
+                    }, status=403)
+
         serializer = self.get_serializer(instance, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response({
+                "success": False,
+                "errors": self._format_validation_errors(serializer.errors),
+                "code": "invalid"
+            }, status=400)
+
+        # Save the user
         serializer.save()
-        return Response(serializer.data)
 
+        # Handle group_profiles if provided (only for superusers)
+        if request.user.is_superuser:
+            group_slugs = request.data.get("group_profiles")
+            if group_slugs is not None:
+                self._update_group_profiles(instance, group_slugs)
+
+        # Return success response with updated user data
+        response_serializer = self.get_serializer(instance)
+        return Response({
+            "success": True,
+            "data": response_serializer.data,
+            "message": "User updated successfully"
+        }, status=200)
+
+    @extend_schema(
+        methods=["delete"],
+        responses={
+            200: {"description": "User deleted successfully"},
+            403: {"description": "Permission denied"},
+            400: {"description": "Cannot delete user - validation rules violated"}
+        },
+        description="API endpoint allowing admins (superusers or users with 'qtv' role) to delete users. Cannot delete own account or violate deletion rules.",
+    )
     def destroy(self, request, *args, **kwargs):
+        """
+        Delete a user. Only superusers or users with 'qtv' role can delete users.
+        Users cannot delete their own account.
+        """
         instance = self.get_object()
-        self.perform_destroy(instance)
-        return Response("User deleted sucessfully", status=200)
 
-    def perform_destroy(self, instance):
+        # Check if user has admin privileges
+        if not self._is_admin_user(request.user):
+            return Response({
+                "success": False,
+                "errors": ["Only superusers or users with 'qtv' role can delete users."],
+                "code": "permission_denied"
+            }, status=403)
+
+        # Prevent users from deleting their own account
+        if request.user == instance:
+            return Response({
+                "success": False,
+                "errors": ["You cannot delete your own account."],
+                "code": "permission_denied"
+            }, status=403)
+
+        # Check deletion rules
         deletable, errors = check_user_deletion_rules(instance)
         if not deletable:
-            raise PermissionDenied(f"One or more validation rules are violated: {errors}")
+            return Response({
+                "success": False,
+                "errors": [f"Cannot delete user: {', '.join(errors)}"],
+                "code": "validation_failed"
+            }, status=400)
+
+        # Store user info for response
+        user_info = {
+            "id": instance.id,
+            "username": instance.username,
+            "email": instance.email
+        }
+
+        # Delete the user
         instance.delete()
+
+        return Response({
+            "success": True,
+            "data": user_info,
+            "message": "User deleted successfully"
+        }, status=200)
+
+    def perform_destroy(self, instance):
+        # This method is now handled by the destroy method above
+        pass
 
     @extend_schema(
         methods=["get"],
@@ -166,3 +344,80 @@ class UserViewSet(DynamicModelViewSet):
         ResourceBase.objects.filter(owner=user).update(owner=target or user)
 
         return Response("Resources transfered successfully", status=200)
+
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        serializer = self.get_serializer(request.user)
+        return Response(serializer.data)
+
+    @extend_schema(
+        methods=["patch", "put"],
+        request=UserSerializer,
+        responses={
+            200: {"description": "Profile updated successfully"},
+            400: {"description": "Validation error"}
+        },
+        description="API endpoint allowing users to update their own profile information. Fields: email, first_name, last_name. Username cannot be changed.",
+    )
+    @action(detail=False, methods=["patch", "put"], url_path="me/update")
+    def update_me(self, request):
+        """
+        Update the authenticated user's own profile.
+        Users can update: email, first_name, last_name
+        """
+        instance = request.user
+
+        # Remove fields that users cannot update themselves
+        restricted_fields = ['username', 'is_superuser', 'is_staff', 'group_profiles']
+        for field in restricted_fields:
+            if field in request.data:
+                return Response({
+                    "success": False,
+                    "errors": [f"You cannot update the '{field}' field. Contact an administrator if needed."],
+                    "code": "permission_denied"
+                }, status=403)
+
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response({
+                "success": False,
+                "errors": self._format_validation_errors(serializer.errors),
+                "code": "invalid"
+            }, status=400)
+
+        # Save the user
+        serializer.save()
+
+        # Return success response with updated user data
+        response_serializer = self.get_serializer(instance)
+        return Response({
+            "success": True,
+            "data": response_serializer.data,
+            "message": "Profile updated successfully"
+        }, status=200)
+
+    @extend_schema(
+        methods=["post"],
+        request=PasswordChangeSerializer,
+        responses={
+            200: {"description": "Password changed successfully"},
+            400: {"description": "Validation error"}
+        },
+        description="API endpoint allowing users to change their password. Requires current password, new password, and confirm password.",
+    )
+    @action(detail=False, methods=["post"], url_path="change-password")
+    def change_password(self, request):
+        """
+        Change password for the authenticated user.
+        Requires: current_password, new_password, confirm_password
+        """
+        serializer = PasswordChangeSerializer(data=request.data, context={'request': request})
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                {"message": "Password changed successfully"},
+                status=200
+            )
+
+        return Response(serializer.errors, status=400)

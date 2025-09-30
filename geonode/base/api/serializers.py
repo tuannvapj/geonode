@@ -48,6 +48,8 @@ from geonode.favorite.models import Favorite
 from geonode.base.models import (
     Link,
     ResourceBase,
+    OrgDocument,
+    OrgDocumentFile,
     HierarchicalKeyword,
     Region,
     RestrictionCodeType,
@@ -876,3 +878,94 @@ class LinkedResourceSerializer(DynamicModelSerializer):
             }
         )
         return data
+
+
+class OrgDocumentFileSerializer(DynamicModelSerializer):
+    """Serializer for organizational document files"""
+
+    file_url = serializers.SerializerMethodField()
+    file_extension = serializers.ReadOnlyField()
+    is_allowed_type = serializers.ReadOnlyField()
+    uploaded_by_username = serializers.CharField(source='uploaded_by.username', read_only=True)
+
+    class Meta:
+        model = OrgDocumentFile
+        fields = [
+            'id', 'filename', 'file_size', 'content_type',
+            'uploaded_at', 'uploaded_by', 'uploaded_by_username',
+            'file_url', 'file_extension', 'is_allowed_type'
+        ]
+
+    def get_file_url(self, obj):
+        """Get download URL for the file"""
+        request = self.context.get('request')
+        if request and obj.file:
+            return request.build_absolute_uri(obj.file.url)
+        return None
+
+
+class OrgDocumentSerializer(DynamicModelSerializer):
+    """Serializer for organizational documents"""
+
+    files = DynamicRelationField(OrgDocumentFileSerializer, many=True, read_only=True, embed=True)
+    tag_list = serializers.ReadOnlyField()
+    file_count = serializers.ReadOnlyField()
+    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    created_by_full_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OrgDocument
+        name = "org-document"
+        fields = [
+            'id', 'title', 'description', 'tags', 'tag_list',
+            'created_by', 'created_by_username', 'created_by_full_name',
+            'created_at', 'updated_at', 'files', 'file_count'
+        ]
+        read_only_fields = ['created_by', 'created_at', 'updated_at']
+
+    def get_created_by_full_name(self, obj):
+        """Get full name of creator"""
+        return f"{obj.created_by.first_name} {obj.created_by.last_name}".strip() or obj.created_by.username
+
+    def create(self, validated_data):
+        """Create document with current user as creator"""
+        validated_data['created_by'] = self.context['request'].user
+        return super().create(validated_data)
+
+
+class OrgDocumentCreateSerializer(DynamicModelSerializer):
+    """Serializer for creating documents with file uploads"""
+
+    files = serializers.ListField(
+        child=serializers.FileField(),
+        write_only=True,
+        required=False,
+        help_text="List of files to attach to the document"
+    )
+
+    class Meta:
+        model = OrgDocument
+        name = "org-document-create"
+        fields = ['title', 'description', 'tags', 'files']
+
+    def create(self, validated_data):
+        """Create document and attach files"""
+        files_data = validated_data.pop('files', [])
+        request = self.context['request']
+
+        # Create the document
+        validated_data['created_by'] = request.user
+        document = OrgDocument.objects.create(**validated_data)
+
+        # Create file attachments
+        for file_data in files_data:
+            OrgDocumentFile.objects.create(
+                document=document,
+                file=file_data,
+                filename=file_data.name,
+                file_size=file_data.size,
+                content_type=getattr(file_data, 'content_type', 'application/octet-stream'),
+                uploaded_by=request.user
+            )
+
+        return document

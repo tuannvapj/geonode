@@ -24,6 +24,7 @@ from django.urls import path
 
 from . import api as resources
 from . import resourcebase_api as resourcebase_resources
+from geonode.base.api.views import OrgDocumentViewSet
 
 api = Api(api_name="api")
 
@@ -45,6 +46,9 @@ api.register(resourcebase_resources.GeoAppResource())
 api.register(resourcebase_resources.ResourceBaseResource())
 
 router = routers.DynamicRouter()
+
+# Register organizational documents viewset under /api/v2/docs/
+router.register("docs", OrgDocumentViewSet, "org-documents")
 
 urlpatterns = [
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
