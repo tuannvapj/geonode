@@ -28,9 +28,8 @@ Successfully implemented a new metadata editing API to replace the unreliable up
   "title": "HienTrangSDD_2020",
   "description": "Hiện trạng sử dụng đất 2020",
   "keywords": ["hiện trạng", "sử dụng đất", "2020"],
-  "labels": ["Bản đồ nền"],
-  "regions": ["HCMC"],
-  "category": "farming"
+  "category": "Sử dụng đất",
+  "regions": ["HCMC"]
 }
 ```
 
@@ -45,7 +44,7 @@ Successfully implemented a new metadata editing API to replace the unreliable up
   "title": "HienTrangSDD_2020",
   "description": "Hiện trạng sử dụng đất năm 2020",
   "keywords": ["hiện trạng", "sử dụng đất", "2020"],
-  "labels": ["Bản đồ nền"],
+  "category": "Sử dụng đất",
   "regions": ["HCMC"]
 }
 ```
@@ -75,12 +74,12 @@ Successfully implemented a new metadata editing API to replace the unreliable up
 Added convenience fields to `DatasetSerializer`:
 - `description` - Alias for `abstract` field (more intuitive)
 - `keyword_list` - Simple list of keyword strings
-- `labels` - Vietnamese category labels
+- `category` - Vietnamese project category (sourced from `category_custom` field)
 
 **Benefits**:
 - Plugin can display metadata more easily in Data Source table
 - No need to parse nested objects
-- Vietnamese labels automatically derived from keywords
+- Category stored in database for reliable persistence
 
 ### ✅ 4. Permissions & Validation
 
@@ -93,7 +92,7 @@ Added convenience fields to `DatasetSerializer`:
 - Title must be string
 - Description/abstract must be string
 - Keywords: supports list OR comma-separated string
-- Labels: supports list OR comma-separated string
+- Category: must be string (e.g., 'Sử dụng đất', 'Công trình thủy lợi')
 - Regions: supports list OR comma-separated string
 - Clear error messages for invalid payloads
 
@@ -143,7 +142,7 @@ Contains:
 - ✅ PATCH description only
 - ✅ PATCH keywords as list
 - ✅ PATCH keywords as string
-- ✅ PATCH Vietnamese labels
+- ✅ PATCH category field
 - ✅ PATCH all fields
 - ✅ PATCH unauthenticated
 - ✅ PATCH without permission
@@ -160,15 +159,40 @@ Contains:
 
 **Total**: 22 test cases covering all major scenarios
 
-### ✅ 7. Feature Branch
+### ✅ 7. Category Field Implementation
+
+**Migration**: `0045_dataset_category_custom.py`
+**Status**: ✅ Applied and Tested
+
+Added `category_custom` CharField to Dataset model to store Vietnamese project categories:
+- Field accepts strings like: 'Công trình thủy lợi', 'Sử dụng đất', 'Quan trắc khí tượng thủy văn', 'Đường bờ sông'
+- Replaced previous `labels` field (which was computed, not stored)
+- API now exposes `category` field (sourced from `category_custom`)
+- GET `/api/v2/datasets/{id}/metadata_fields/` returns `"category": "Sử dụng đất"`
+- PATCH accepts `"category": "Công trình thủy lợi"` and persists to database
+
+**Changes Made**:
+- `layers/models.py`: Added `category_custom` CharField (max_length=255, nullable)
+- `layers/api/serializers.py`: Replaced `labels` with `category` field
+- `layers/api/views.py`: Updated GET/PATCH to use `category_custom`
+- `layers/migrations/0045_dataset_category_custom.py`: Database migration
+
+**Testing Results**:
+- ✅ Migration applied successfully
+- ✅ GET returns category correctly
+- ✅ PATCH saves category to database
+- ✅ Category persists across requests
+- ✅ Serializer exposes category field
+- ✅ Labels field removed
+
+### ✅ 8. Feature Branch
 
 **Branch**: `feature/metadata-edit-api`
-**Commit**: `af64d0a24`
 **Base**: `geonode-4.4.3`
 
-**Files Changed**: 27 files
-- Added: 23 files
-- Modified: 4 files
+**Files Changed**: 31 files
+- Added: 24 files
+- Modified: 7 files
 - Deleted: 0 files (old code archived, not deleted)
 
 ## Technical Highlights
@@ -240,10 +264,10 @@ Contains:
 {"keywords": "kw1,kw2"}                # Comma-separated string
 ```
 
-**Vietnamese labels**:
-- Labels automatically added to keywords
-- Searchable via keyword search
-- Displayed in dedicated `labels` field
+**Vietnamese category support**:
+- Category stored in dedicated `category_custom` database field
+- Accepts Vietnamese text: 'Công trình thủy lợi', 'Sử dụng đất', etc.
+- Persists reliably across all operations
 
 ## Testing
 
@@ -262,7 +286,7 @@ curl -X PATCH http://localhost:8000/api/v2/datasets/28/metadata_fields/ \
     "title": "Test Title",
     "description": "Test Description",
     "keywords": ["test", "metadata"],
-    "labels": ["Bản đồ nền"]
+    "category": "Sử dụng đất"
   }'
 ```
 
@@ -280,7 +304,7 @@ python manage.py test geonode.layers.tests_metadata_api
 ```bash
 git checkout feature/metadata-edit-api
 docker-compose restart django
-# No migrations needed - uses existing fields
+docker-compose exec django python manage.py migrate layers
 ```
 
 ### Production
@@ -289,10 +313,11 @@ docker-compose restart django
 git pull origin feature/metadata-edit-api
 docker-compose down
 docker-compose up -d --build
+docker-compose exec django python manage.py migrate layers
 docker-compose exec django python manage.py check
 ```
 
-**No database migrations required** - the API uses existing dataset fields.
+**Database migration required**: Migration `0045_dataset_category_custom` adds the category_custom field.
 
 ## Plugin Migration
 
@@ -305,7 +330,7 @@ upload_data = {
     'dataset_title': title,      # ❌ Remove
     'description': description,  # ❌ Remove
     'keywords': keywords,         # ❌ Remove
-    'labels': labels              # ❌ Remove
+    'category': category          # ❌ Remove
 }
 ```
 
@@ -366,8 +391,10 @@ See `PLUGIN_METADATA_INTEGRATION.md` for complete code examples.
 ## Files Reference
 
 ### Core Implementation
-- `geonode/layers/api/views.py` - API endpoints (lines 169-428)
-- `geonode/layers/api/serializers.py` - Enhanced serializers
+- `geonode/layers/models.py` - Dataset model with category_custom field
+- `geonode/layers/migrations/0045_dataset_category_custom.py` - Migration
+- `geonode/layers/api/views.py` - API endpoints (metadata_fields action)
+- `geonode/layers/api/serializers.py` - Enhanced serializers with category field
 - `geonode/layers/tests_metadata_api.py` - Unit tests
 
 ### Documentation
@@ -418,4 +445,10 @@ For questions or issues:
 
 **Implementation Date**: November 4, 2025
 **Feature Branch**: `feature/metadata-edit-api`
-**Status**: ✅ Ready for Testing
+**Status**: ✅ Fully Tested and Ready for Production
+
+**Recent Updates**:
+- ✅ November 4, 2025: Added category_custom field with migration 0045
+- ✅ Replaced labels with category in API and serializer
+- ✅ Migration applied and tested successfully
+- ✅ Category field fully functional in GET/PATCH endpoints
