@@ -178,9 +178,8 @@ class DatasetViewSet(ApiPresetsInitializer, DynamicModelViewSet, AdvertisedListM
                             "title": "HienTrangSDD_2020",
                             "description": "Hiện trạng sử dụng đất 2020",
                             "keywords": ["hiện trạng", "sử dụng đất", "2020"],
-                            "labels": ["Bản đồ nền"],
+                            "category": "Sử dụng đất",
                             "regions": ["HCMC"],
-                            "category": "farming",
                             "abstract": "Hiện trạng sử dụng đất 2020"
                         }
                     }
@@ -199,7 +198,7 @@ class DatasetViewSet(ApiPresetsInitializer, DynamicModelViewSet, AdvertisedListM
           "title": "HienTrangSDD_2020",
           "description": "Test description",
           "keywords": ["test", "metadata"],
-          "labels": ["Bản đồ nền"],
+          "category": "Sử dụng đất",
           "regions": ["HCMC"]
         }
         """,
@@ -248,7 +247,7 @@ class DatasetViewSet(ApiPresetsInitializer, DynamicModelViewSet, AdvertisedListM
             "title": "HienTrangSDD_2020",
             "description": "Hiện trạng sử dụng đất 2020",
             "keywords": ["hiện trạng", "sử dụng đất", "2020"],
-            "labels": ["Bản đồ nền"]
+            "category": "Sử dụng đất"
         }
         response = requests.patch(url, json=payload, headers=headers)
 
@@ -264,7 +263,7 @@ class DatasetViewSet(ApiPresetsInitializer, DynamicModelViewSet, AdvertisedListM
             "title": "HienTrangSDD_2020",
             "description": "Test description",
             "keywords": ["test", "metadata"],
-            "labels": ["Bản đồ nền"]
+            "category": "Sử dụng đất"
         }'
         """
         dataset = self.get_object()
@@ -278,37 +277,9 @@ class DatasetViewSet(ApiPresetsInitializer, DynamicModelViewSet, AdvertisedListM
                 "description": dataset.abstract or "",
                 "abstract": dataset.abstract or "",  # Alias for description
                 "keywords": [kw.name for kw in dataset.keywords.all()],
-                "category": dataset.category.identifier if dataset.category else None,
+                "category": dataset.category_custom or "",  # Use custom category field
                 "regions": [region.name for region in dataset.regions.all()],
             }
-
-            # Add labels using same logic as serializer
-            labels = []
-            category_mapping = {
-                'farming': 'Thuỷ lợi',
-                'location': 'Bản đồ nền',
-                'climatologyMeteorologyAtmosphere': 'Khí tượng thuỷ văn',
-                'imageryBaseMapsEarthCover': 'Viễn thám',
-                'inlandWaters': 'Thuỷ lợi',
-                'transportation': 'Bản đồ nền',
-                'boundaries': 'Bản đồ nền',
-                'elevation': 'Bản đồ nền',
-                'geoscientificInformation': 'Bản đồ nền',
-            }
-
-            if dataset.category:
-                category_id = dataset.category.identifier if hasattr(dataset.category, 'identifier') else None
-                if category_id and category_id in category_mapping:
-                    label = category_mapping[category_id]
-                    if label not in labels:
-                        labels.append(label)
-
-            vietnamese_labels = ['Thuỷ lợi', 'Bản đồ nền', 'Khí tượng thuỷ văn', 'Viễn thám']
-            for keyword in dataset.keywords.all():
-                if keyword.name in vietnamese_labels and keyword.name not in labels:
-                    labels.append(keyword.name)
-
-            metadata["labels"] = labels
 
             return Response(metadata)
 
@@ -367,22 +338,12 @@ class DatasetViewSet(ApiPresetsInitializer, DynamicModelViewSet, AdvertisedListM
                     else:
                         return Response({"error": "regions must be a list or comma-separated string"}, status=400)
 
-                # Handle labels by adding to keywords (Vietnamese labels)
-                if "labels" in payload:
-                    labels = payload["labels"]
-                    vietnamese_labels = ['Thuỷ lợi', 'Bản đồ nền', 'Khí tượng thuỷ văn', 'Viễn thám']
-
-                    if isinstance(labels, str):
-                        labels_list = [l.strip() for l in labels.split(',') if l.strip()]
-                    elif isinstance(labels, list):
-                        labels_list = [str(l).strip() for l in labels if str(l).strip()]
-                    else:
-                        return Response({"error": "labels must be a list or comma-separated string"}, status=400)
-
-                    # Add valid Vietnamese labels to keywords
-                    for label in labels_list:
-                        if label in vietnamese_labels and label not in keywords_list:
-                            keywords_list.append(label)
+                # Handle category field
+                if "category" in payload:
+                    category = payload["category"]
+                    if not isinstance(category, str):
+                        return Response({"error": "category must be a string"}, status=400)
+                    vals["category_custom"] = category.strip()
 
                 # Apply metadata using resource_manager
                 logger.info(f"[METADATA-API] Updating dataset {dataset.id} with metadata:")

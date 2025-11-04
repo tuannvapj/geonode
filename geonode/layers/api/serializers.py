@@ -164,7 +164,7 @@ class DatasetSerializer(ResourceBaseSerializer):
     # Convenience fields for plugin integration
     description = serializers.CharField(source='abstract', read_only=True)
     keyword_list = serializers.SerializerMethodField()
-    labels = serializers.SerializerMethodField()
+    category = serializers.CharField(source='category_custom', read_only=True)
 
     class Meta:
         model = Dataset
@@ -193,7 +193,7 @@ class DatasetSerializer(ResourceBaseSerializer):
             "ptype",
             "description",
             "keyword_list",
-            "labels",
+            "category",
         )
 
     def get_keyword_list(self, obj):
@@ -203,46 +203,6 @@ class DatasetSerializer(ResourceBaseSerializer):
         try:
             return [kw.name for kw in obj.keywords.all()]
         except Exception:
-            return []
-
-    def get_labels(self, obj):
-        """
-        Return Vietnamese category labels for the dataset.
-        Supported labels: Thuỷ lợi, Bản đồ nền, Khí tượng thuỷ văn, Viễn thám
-        """
-        try:
-            labels = []
-
-            # Map ISO topic categories to Vietnamese labels
-            category_mapping = {
-                'farming': 'Thuỷ lợi',
-                'location': 'Bản đồ nền',
-                'climatologyMeteorologyAtmosphere': 'Khí tượng thuỷ văn',
-                'imageryBaseMapsEarthCover': 'Viễn thám',
-                'inlandWaters': 'Thuỷ lợi',
-                'transportation': 'Bản đồ nền',
-                'boundaries': 'Bản đồ nền',
-                'elevation': 'Bản đồ nền',
-                'geoscientificInformation': 'Bản đồ nền',
-            }
-
-            # Add topic category mapping
-            if obj.category:
-                category_id = obj.category.identifier if hasattr(obj.category, 'identifier') else None
-                if category_id and category_id in category_mapping:
-                    label = category_mapping[category_id]
-                    if label not in labels:
-                        labels.append(label)
-
-            # Check keywords for Vietnamese labels
-            vietnamese_labels = ['Thuỷ lợi', 'Bản đồ nền', 'Khí tượng thuỷ văn', 'Viễn thám']
-            for keyword in obj.keywords.all():
-                if keyword.name in vietnamese_labels and keyword.name not in labels:
-                    labels.append(keyword.name)
-
-            return labels
-        except Exception as e:
-            logger.exception(f"Error getting labels for dataset {obj.id}: {e}")
             return []
 
 
