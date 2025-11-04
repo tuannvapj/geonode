@@ -390,12 +390,13 @@ class DatasetViewSet(ApiPresetsInitializer, DynamicModelViewSet, AdvertisedListM
                 logger.info(f"[METADATA-API]   - keywords: {keywords_list}")
                 logger.info(f"[METADATA-API]   - regions: {regions_list}")
 
+                # Note: uuid is a positional-only parameter (/) in resource_manager.update()
                 resource_manager.update(
-                    uuid=str(dataset.uuid),
+                    str(dataset.uuid),  # First positional arg (uuid)
                     instance=dataset.get_real_instance(),
                     vals=vals,
-                    keywords=keywords_list if keywords_list else None,
-                    regions=regions_list if regions_list else None,
+                    keywords=keywords_list if keywords_list else [],
+                    regions=regions_list if regions_list else [],
                     notify=True
                 )
 
@@ -423,7 +424,7 @@ class DatasetViewSet(ApiPresetsInitializer, DynamicModelViewSet, AdvertisedListM
             except Exception as e:
                 logger.exception(f"[METADATA-API] Error updating metadata for dataset {dataset.id}: {e}")
                 return Response(
-                    {"error": f"Failed to update metadata: {str(e)}"},
+                    {"error": f"Failed to update metadata: {str(e)} {str(dataset.uuid)}"},
                     status=500
                 )
 
