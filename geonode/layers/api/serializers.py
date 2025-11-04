@@ -161,40 +161,98 @@ class DatasetSerializer(ResourceBaseSerializer):
     attribute_set = DynamicRelationField(AttributeSerializer, embed=True, many=True, read_only=True)
     featureinfo_custom_template = FeatureInfoTemplateField()
 
+    # Convenience fields for plugin integration
+    description = serializers.CharField(source='abstract', read_only=True)
+    keyword_list = serializers.SerializerMethodField()
+    labels = serializers.SerializerMethodField()
+
     class Meta:
         model = Dataset
         name = "dataset"
         view_name = "datasets-list"
-        fields = list(
-            set(
-                ResourceBaseSerializer.Meta.fields
-                + (
-                    "uuid",
-                    "name",
-                    "metadata",
-                    "attribute_set",
-                    "charset",
-                    "is_mosaic",
-                    "has_time",
-                    "has_elevation",
-                    "time_regex",
-                    "elevation_regex",
-                    "featureinfo_custom_template",
-                    "ows_url",
-                    "capabilities_url",
-                    "dataset_ows_url",
-                    "workspace",
-                    "default_style",
-                    "styles",
-                    "store",
-                    "subtype",
-                    "ptype",
-                )
-            )
+        fields = ResourceBaseSerializer.Meta.fields + (
+            "uuid",
+            "name",
+            "metadata",
+            "attribute_set",
+            "charset",
+            "is_mosaic",
+            "has_time",
+            "has_elevation",
+            "time_regex",
+            "elevation_regex",
+            "featureinfo_custom_template",
+            "ows_url",
+            "capabilities_url",
+            "dataset_ows_url",
+            "workspace",
+            "default_style",
+            "styles",
+            "store",
+            "subtype",
+            "ptype",
+            "description",
+            "keyword_list",
+            "labels",
         )
+
+    def get_keyword_list(self, obj):
+        """
+        Return keywords as a simple list of strings.
+        """
+        try:
+            return [kw.name for kw in obj.keywords.all()]
+        except Exception:
+            return []
+
+    def get_labels(self, obj):
+        """
+        Return Vietnamese category labels for the dataset.
+        Supported labels: Thuỷ lợi, Bản đồ nền, Khí tượng thuỷ văn, Viễn thám
+        """
+        try:
+            labels = []
+
+            # Map ISO topic categories to Vietnamese labels
+            category_mapping = {
+                'farming': 'Thuỷ lợi',
+                'location': 'Bản đồ nền',
+                'climatologyMeteorologyAtmosphere': 'Khí tượng thuỷ văn',
+                'imageryBaseMapsEarthCover': 'Viễn thám',
+                'inlandWaters': 'Thuỷ lợi',
+                'transportation': 'Bản đồ nền',
+                'boundaries': 'Bản đồ nền',
+                'elevation': 'Bản đồ nền',
+                'geoscientificInformation': 'Bản đồ nền',
+            }
+
+            # Add topic category mapping
+            if obj.category:
+                category_id = obj.category.identifier if hasattr(obj.category, 'identifier') else None
+                if category_id and category_id in category_mapping:
+                    label = category_mapping[category_id]
+                    if label not in labels:
+                        labels.append(label)
+
+            # Check keywords for Vietnamese labels
+            vietnamese_labels = ['Thuỷ lợi', 'Bản đồ nền', 'Khí tượng thuỷ văn', 'Viễn thám']
+            for keyword in obj.keywords.all():
+                if keyword.name in vietnamese_labels and keyword.name not in labels:
+                    labels.append(keyword.name)
+
+            return labels
+        except Exception as e:
+            logger.exception(f"Error getting labels for dataset {obj.id}: {e}")
+            return []
 
 
 class DatasetListSerializer(DatasetSerializer):
+    """
+    Serializer for dataset list view.
+    Inherits description, keyword_list, and labels from DatasetSerializer.
+    Excludes heavy fields like attribute_set for better performance.
+    """
+
     class Meta(DatasetSerializer.Meta):
         fields = [
             f
