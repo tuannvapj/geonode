@@ -167,6 +167,229 @@ class DatasetViewSet(ApiPresetsInitializer, DynamicModelViewSet, AdvertisedListM
                 storage_manager.delete_retrieved_paths()
 
     @extend_schema(
+        methods=["get", "patch"],
+        responses={
+            200: {
+                "description": "Metadata successfully retrieved or updated",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "id": 28,
+                            "title": "HienTrangSDD_2020",
+                            "description": "Hiện trạng sử dụng đất 2020",
+                            "keywords": ["hiện trạng", "sử dụng đất", "2020"],
+                            "category": "Sử dụng đất",
+                            "regions": ["HCMC"],
+                            "abstract": "Hiện trạng sử dụng đất 2020"
+                        }
+                    }
+                }
+            },
+            400: {"description": "Invalid request payload"},
+            403: {"description": "Permission denied"},
+            404: {"description": "Dataset not found"}
+        },
+        description="""
+        GET: Retrieve editable metadata for a dataset (for pre-filling edit dialogs).
+        PATCH: Update metadata fields for an existing dataset.
+
+        Example PATCH payload:
+        {
+          "title": "HienTrangSDD_2020",
+          "description": "Test description",
+          "keywords": ["test", "metadata"],
+          "category": "Sử dụng đất",
+          "regions": ["HCMC"]
+        }
+        """,
+    )
+    @action(
+        detail=True,
+        methods=["get", "patch"],
+        url_path="metadata_fields",
+        url_name="metadata-fields",
+        permission_classes=[
+            IsAuthenticated,
+            UserHasPerms(perms_dict={
+                "default": {
+                    "GET": ["base.view_resourcebase"],
+                    "PATCH": ["base.change_resourcebase_metadata"]
+                }
+            }),
+        ],
+    )
+    def metadata_fields(self, request, pk=None, *args, **kwargs):
+        """
+        GET/PATCH metadata fields for a dataset.
+
+        This endpoint allows QGIS plugin users to:
+        1. GET metadata for pre-filling edit dialogs
+        2. PATCH metadata after successful upload
+
+        Usage Example (GET):
+
+        import requests
+
+        dataset_id = 28
+        url = f"http://localhost:8080/api/v2/datasets/{dataset_id}/metadata_fields/"
+        headers = {'Authorization': 'Bearer YOUR_TOKEN'}
+        response = requests.get(url, headers=headers)
+        metadata = response.json()
+
+        Usage Example (PATCH):
+
+        import requests
+
+        dataset_id = 28
+        url = f"http://localhost:8080/api/v2/datasets/{dataset_id}/metadata_fields/"
+        headers = {'Authorization': 'Bearer YOUR_TOKEN'}
+        payload = {
+            "title": "HienTrangSDD_2020",
+            "description": "Hiện trạng sử dụng đất 2020",
+            "keywords": ["hiện trạng", "sử dụng đất", "2020"],
+            "category": "Sử dụng đất"
+        }
+        response = requests.patch(url, json=payload, headers=headers)
+
+        cURL example (GET):
+        curl --location 'http://localhost:8000/api/v2/datasets/28/metadata_fields/' \
+        --header 'Authorization: Bearer YOUR_TOKEN'
+
+        cURL example (PATCH):
+        curl --location --request PATCH 'http://localhost:8000/api/v2/datasets/28/metadata_fields/' \
+        --header 'Content-Type: application/json' \
+        --header 'Authorization: Bearer YOUR_TOKEN' \
+        --data '{
+            "title": "HienTrangSDD_2020",
+            "description": "Test description",
+            "keywords": ["test", "metadata"],
+            "category": "Sử dụng đất"
+        }'
+        """
+        dataset = self.get_object()
+
+        if request.method == "GET":
+            # Return current metadata for pre-filling edit dialog
+            metadata = {
+                "id": dataset.id,
+                "uuid": str(dataset.uuid),
+                "title": dataset.title or "",
+                "description": dataset.abstract or "",
+                "abstract": dataset.abstract or "",  # Alias for description
+                "keywords": [kw.name for kw in dataset.keywords.all()],
+                "category": dataset.category_custom or "",  # Use custom category field
+                "regions": [region.name for region in dataset.regions.all()],
+            }
+
+            return Response(metadata)
+
+        elif request.method == "PATCH":
+            # Update metadata fields
+            try:
+                payload = request.data
+
+                # Validate payload
+                if not isinstance(payload, dict):
+                    return Response(
+                        {"error": "Request payload must be a JSON object"},
+                        status=400
+                    )
+
+                # Prepare values for resource_manager.update()
+                vals = {}
+                keywords_list = []
+                regions_list = []
+
+                # Extract and validate fields
+                if "title" in payload:
+                    title = payload["title"]
+                    if not isinstance(title, str):
+                        return Response({"error": "title must be a string"}, status=400)
+                    vals["title"] = title.strip()
+
+                if "description" in payload:
+                    description = payload["description"]
+                    if not isinstance(description, str):
+                        return Response({"error": "description must be a string"}, status=400)
+                    vals["abstract"] = description.strip()
+                elif "abstract" in payload:  # Support alias
+                    abstract = payload["abstract"]
+                    if not isinstance(abstract, str):
+                        return Response({"error": "abstract must be a string"}, status=400)
+                    vals["abstract"] = abstract.strip()
+
+                if "keywords" in payload:
+                    keywords = payload["keywords"]
+                    # Support both list and comma-separated string
+                    if isinstance(keywords, str):
+                        keywords_list = [k.strip() for k in keywords.split(',') if k.strip()]
+                    elif isinstance(keywords, list):
+                        keywords_list = [str(k).strip() for k in keywords if str(k).strip()]
+                    else:
+                        return Response({"error": "keywords must be a list or comma-separated string"}, status=400)
+
+                if "regions" in payload:
+                    regions = payload["regions"]
+                    # Support both list and comma-separated string
+                    if isinstance(regions, str):
+                        regions_list = [r.strip() for r in regions.split(',') if r.strip()]
+                    elif isinstance(regions, list):
+                        regions_list = [str(r).strip() for r in regions if str(r).strip()]
+                    else:
+                        return Response({"error": "regions must be a list or comma-separated string"}, status=400)
+
+                # Handle category field
+                if "category" in payload:
+                    category = payload["category"]
+                    if not isinstance(category, str):
+                        return Response({"error": "category must be a string"}, status=400)
+                    vals["category_custom"] = category.strip()
+
+                # Apply metadata using resource_manager
+                logger.info(f"[METADATA-API] Updating dataset {dataset.id} with metadata:")
+                logger.info(f"[METADATA-API]   - vals: {vals}")
+                logger.info(f"[METADATA-API]   - keywords: {keywords_list}")
+                logger.info(f"[METADATA-API]   - regions: {regions_list}")
+
+                # Note: uuid is a positional-only parameter (/) in resource_manager.update()
+                resource_manager.update(
+                    str(dataset.uuid),  # First positional arg (uuid)
+                    instance=dataset.get_real_instance(),
+                    vals=vals,
+                    keywords=keywords_list if keywords_list else [],
+                    regions=regions_list if regions_list else [],
+                    notify=True
+                )
+
+                # Refresh from database
+                dataset.refresh_from_db()
+
+                # Return updated metadata
+                response_data = {
+                    "success": True,
+                    "message": "Metadata successfully updated",
+                    "dataset": {
+                        "id": dataset.id,
+                        "uuid": str(dataset.uuid),
+                        "title": dataset.title,
+                        "description": dataset.abstract,
+                        "keywords": [kw.name for kw in dataset.keywords.all()],
+                        "regions": [region.name for region in dataset.regions.all()],
+                    }
+                }
+
+                logger.info(f"[METADATA-API] Successfully updated dataset {dataset.id}")
+
+                return Response(response_data, status=200)
+
+            except Exception as e:
+                logger.exception(f"[METADATA-API] Error updating metadata for dataset {dataset.id}: {e}")
+                return Response(
+                    {"error": f"Failed to update metadata: {str(e)} {str(dataset.uuid)}"},
+                    status=500
+                )
+
+    @extend_schema(
         methods=["get"],
         responses={200: SimpleMapLayerSerializer(many=True)},
         description="API endpoint allowing to retrieve the MapLayers list.",

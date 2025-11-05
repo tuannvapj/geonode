@@ -161,40 +161,58 @@ class DatasetSerializer(ResourceBaseSerializer):
     attribute_set = DynamicRelationField(AttributeSerializer, embed=True, many=True, read_only=True)
     featureinfo_custom_template = FeatureInfoTemplateField()
 
+    # Convenience fields for plugin integration
+    description = serializers.CharField(source='abstract', read_only=True)
+    keyword_list = serializers.SerializerMethodField()
+    category = serializers.CharField(source='category_custom', read_only=True)
+
     class Meta:
         model = Dataset
         name = "dataset"
         view_name = "datasets-list"
-        fields = list(
-            set(
-                ResourceBaseSerializer.Meta.fields
-                + (
-                    "uuid",
-                    "name",
-                    "metadata",
-                    "attribute_set",
-                    "charset",
-                    "is_mosaic",
-                    "has_time",
-                    "has_elevation",
-                    "time_regex",
-                    "elevation_regex",
-                    "featureinfo_custom_template",
-                    "ows_url",
-                    "capabilities_url",
-                    "dataset_ows_url",
-                    "workspace",
-                    "default_style",
-                    "styles",
-                    "store",
-                    "subtype",
-                    "ptype",
-                )
-            )
+        fields = ResourceBaseSerializer.Meta.fields + (
+            "uuid",
+            "name",
+            "metadata",
+            "attribute_set",
+            "charset",
+            "is_mosaic",
+            "has_time",
+            "has_elevation",
+            "time_regex",
+            "elevation_regex",
+            "featureinfo_custom_template",
+            "ows_url",
+            "capabilities_url",
+            "dataset_ows_url",
+            "workspace",
+            "default_style",
+            "styles",
+            "store",
+            "subtype",
+            "ptype",
+            "description",
+            "keyword_list",
+            "category",
         )
+
+    def get_keyword_list(self, obj):
+        """
+        Return keywords as a simple list of strings.
+        """
+        try:
+            return [kw.name for kw in obj.keywords.all()]
+        except Exception:
+            return []
 
 
 class DatasetListSerializer(DatasetSerializer):
+    """
+    Serializer for dataset list view.
+    Inherits description, keyword_list, and labels from DatasetSerializer.
+    Excludes heavy fields like attribute_set for better performance.
+    """
+
     class Meta(DatasetSerializer.Meta):
         fields = [
             f
