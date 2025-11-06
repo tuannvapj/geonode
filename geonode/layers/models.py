@@ -145,13 +145,13 @@ class Dataset(ResourceBase):
     charset = models.CharField(max_length=255, default="UTF-8")
 
     # Custom category field for Vietnamese project categories
-    category_custom = models.CharField(
-        _("Category"),
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text=_("Dataset category (e.g., 'Công trình thủy lợi', 'Sử dụng đất', etc.)"),
-    )
+    # category_custom = models.CharField(
+    #     _("Category"),
+    #     max_length=255,
+    #     blank=True,
+    #     null=True,
+    #     help_text=_("Dataset category (e.g., 'Công trình thủy lợi', 'Sử dụng đất', etc.)"),
+    # )
 
     use_featureinfo_custom_template = models.BooleanField(
         _("use featureinfo custom template?"),
