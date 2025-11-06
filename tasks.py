@@ -112,7 +112,10 @@ def update(ctx):
             os.getenv("ALLOWED_HOSTS")
             or "['{public_fqdn}', '{public_host}', 'localhost', 'django', 'geonode',]".format(**envs)
         )
-    except ValueError:
+        # Ensure current_allowed is a list
+        if not isinstance(current_allowed, list):
+            current_allowed = [current_allowed] if current_allowed else []
+    except (ValueError, SyntaxError):
         current_allowed = []
     current_allowed.extend([str(pub_host), f"{pub_host}:{pub_port}"])
     allowed_hosts = [str(c) for c in current_allowed] + ['"geonode"', '"django"']
