@@ -164,7 +164,7 @@ class DatasetSerializer(ResourceBaseSerializer):
     # Convenience fields for plugin integration
     description = serializers.CharField(source='abstract', read_only=True)
     keyword_list = serializers.SerializerMethodField()
-    # category = serializers.CharField(source='category_custom', read_only=True)
+    category = serializers.CharField(source='category_custom', read_only=True)
 
     class Meta:
         model = Dataset
@@ -193,7 +193,7 @@ class DatasetSerializer(ResourceBaseSerializer):
             "ptype",
             "description",
             "keyword_list",
-            # "category",
+            "category",
         )
 
     def get_keyword_list(self, obj):

@@ -277,7 +277,7 @@ class DatasetViewSet(ApiPresetsInitializer, DynamicModelViewSet, AdvertisedListM
                 "description": dataset.abstract or "",
                 "abstract": dataset.abstract or "",  # Alias for description
                 "keywords": [kw.name for kw in dataset.keywords.all()],
-                # "category": dataset.category_custom or "",  # Use custom category field
+                "category": dataset.category_custom or "",  # Use custom category field
                 "regions": [region.name for region in dataset.regions.all()],
             }
 
@@ -343,7 +343,7 @@ class DatasetViewSet(ApiPresetsInitializer, DynamicModelViewSet, AdvertisedListM
                     category = payload["category"]
                     if not isinstance(category, str):
                         return Response({"error": "category must be a string"}, status=400)
-                    # vals["category_custom"] = category.strip()
+                    vals["category_custom"] = category.strip()
 
                 # Apply metadata using resource_manager
                 logger.info(f"[METADATA-API] Updating dataset {dataset.id} with metadata:")
