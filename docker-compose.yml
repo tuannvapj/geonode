@@ -25,6 +25,7 @@ services:
   django:
     << : *default-common-django
     container_name: django4${COMPOSE_PROJECT_NAME}
+    restart: "no"
     healthcheck:
       test: "curl -m 10 --fail --silent --write-out 'HTTP CODE : %{http_code}\n' --output /dev/null http://django:8000/"
       start_period: 60s
