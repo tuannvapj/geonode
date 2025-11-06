@@ -100,7 +100,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8082:8080"
+      - "8092:8080"
     volumes:
       - statics:/mnt/volumes/statics
       - geoserver-data-dir:/geoserver_data/data
