@@ -75,6 +75,8 @@ services:
       - nginx-confd:/etc/nginx
       - nginx-certificates:/geonode-certificates
       - statics:/mnt/volumes/statics
+      - ./docker/nginx/custom_proxy.conf:/etc/nginx/nginx.conf.d/30_custom_proxy.conf:ro
+      - ./docker/nginx/nginx_custom_server.conf:/etc/nginx/nginx.conf.d/20_server_config.conf:ro
     restart: unless-stopped
 
   # Gets and installs letsencrypt certificates
